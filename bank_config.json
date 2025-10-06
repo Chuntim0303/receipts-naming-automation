@@ -1,0 +1,100 @@
+{
+  "name_keywords": [
+    "receive from",
+    "received from",
+    "transfer from",
+    "sender",
+    "sender name",
+    "from",
+    "payer",
+    "paid by",
+    "customer",
+    "customer name",
+    "name",
+    "bill to",
+    "client",
+    "recipient",
+    "beneficiary",
+    "transferred from",
+    "remitter",
+    "remitter name",
+    "debited from",
+    "originator",
+    "originator name",
+    "paid to",
+    "payee"
+  ],
+  "banks": {
+    "Maybank": {
+      "keywords": ["transferred from", "sender's name", "maybank2u", "mae"],
+      "app_names": ["Maybank2u", "MAE by Maybank2u"]
+    },
+    "CIMB": {
+      "keywords": ["remitter", "remitter name", "cimb clicks", "cimb octo"],
+      "app_names": ["CIMB Clicks", "CIMB Octo"]
+    },
+    "Public Bank": {
+      "keywords": ["originator", "originator name", "pbe"],
+      "app_names": ["PBe", "PB engage"]
+    },
+    "Hong Leong Bank": {
+      "keywords": ["debited from", "hlb connect"],
+      "app_names": ["HLB Connect"]
+    },
+    "RHB": {
+      "keywords": ["from account", "sender", "rhb mobile"],
+      "app_names": ["RHB Mobile Banking"]
+    },
+    "AmBank": {
+      "keywords": ["from", "sender name", "ambank"],
+      "app_names": ["AmOnline"]
+    },
+    "Bank Islam": {
+      "keywords": ["from", "sender", "bank islam"],
+      "app_names": ["Bank Islam GO"]
+    }
+  },
+  "excluded_words": [
+    "details",
+    "transaction",
+    "transfer",
+    "payment",
+    "receipt",
+    "duitnow",
+    "instant",
+    "online",
+    "banking",
+    "mobile",
+    "maybank",
+    "cimb",
+    "public",
+    "hong leong",
+    "rhb",
+    "ambank",
+    "success",
+    "successful",
+    "completed",
+    "pending",
+    "failed",
+    "processing",
+    "date",
+    "time",
+    "amount",
+    "balance",
+    "reference",
+    "status",
+    "wallet",
+    "account",
+    "number",
+    "total",
+    "subtotal",
+    "charges",
+    "fees"
+  ],
+  "settings": {
+    "min_name_length": 3,
+    "max_name_words": 5,
+    "parallel_workers": 3,
+    "debug_mode": false
+  }
+}

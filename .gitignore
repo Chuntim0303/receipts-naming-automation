@@ -1,0 +1,4 @@
+.env 
+receipts/ 
+customer_names.csv 
+__pycache__/ 
