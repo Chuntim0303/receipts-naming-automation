@@ -1,161 +1,85 @@
-import pytesseract
-from PIL import Image
+import fitz  # PyMuPDF
 import os
 import re
 import csv
-import json
 from pathlib import Path
-import sys
 
-# Load bank configuration
-def load_config():
-    """Load bank configuration from JSON file"""
+def extract_text_from_pdf(pdf_path):
+    """Extract text from PDF file"""
     try:
-        with open('bank_config.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print("Warning: bank_config.json not found. Using default settings.")
-        return {
-            "name_keywords": ["customer", "name", "from", "sender"],
-            "excluded_words": ["details", "transaction", "transfer"],
-            "settings": {"min_name_length": 3, "max_name_words": 5}
-        }
-
-CONFIG = load_config()
-
-# Configure Tesseract path for Windows
-if sys.platform == 'win32':
-    possible_paths = [
-        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-        r'C:\Users\chunt\AppData\Local\Programs\Tesseract-OCR\tesseract.exe',
-    ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            pytesseract.pytesseract.tesseract_cmd = path
-            print(f"Found Tesseract at: {path}\n")
-            break
-    else:
-        print("ERROR: Tesseract not found!")
-        print("Please install from: https://github.com/UB-Mannheim/tesseract/wiki")
-        sys.exit(1)
-
-def extract_text_from_image(image_path):
-    """Extract text from receipt image using Tesseract OCR"""
-    try:
-        img = Image.open(image_path)
-        # Use PSM 6 (assume uniform block of text)
-        text = pytesseract.image_to_string(img, config='--psm 6')
+        doc = fitz.open(pdf_path)
+        text = ""
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text += page.get_text()
+        
+        doc.close()
         return text
     except Exception as e:
-        print(f"Error processing {image_path}: {e}")
+        print(f"Error processing {pdf_path}: {e}")
         return ""
 
-def detect_bank(text):
-    """Detect which bank the receipt is from"""
-    text_lower = text.lower()
-    
-    for bank_name, bank_info in CONFIG.get('banks', {}).items():
-        # Check for bank keywords and app names
-        for keyword in bank_info.get('keywords', []):
-            if keyword.lower() in text_lower:
-                return bank_name, bank_info
-        for app_name in bank_info.get('app_names', []):
-            if app_name.lower() in text_lower:
-                return bank_name, bank_info
-    
-    return None, None
-
-def clean_name(name, excluded_words):
-    """Clean extracted name by removing excluded words"""
-    words = name.split()
-    cleaned_words = []
-    
-    for word in words:
-        word_lower = word.lower()
-        # Skip if word is in excluded list or is just numbers/symbols
-        if word_lower not in excluded_words and not word.replace('-', '').replace('/', '').isdigit():
-            if len(word) > 1:  # Skip single characters
-                cleaned_words.append(word)
-    
-    return ' '.join(cleaned_words)
-
-def is_valid_name(name, min_length, max_words):
-    """Validate if extracted text is a valid name"""
-    if not name or len(name) < min_length:
-        return False
-    
-    words = name.split()
-    if len(words) > max_words:
-        return False
-    
-    # Should contain at least some letters
-    if not any(c.isalpha() for c in name):
-        return False
-    
-    return True
-
-def extract_customer_name(text):
+def extract_recipient_name(text):
     """
-    Extract customer name from receipt text using bank_config.json patterns.
+    Extract recipient name from bank transfer receipt.
+    Looks for patterns like:
+    - "To Account No. / DuitNow ID: ... / NAME"
+    - "Transfer To\nNAME"
     """
-    settings = CONFIG.get('settings', {})
-    min_length = settings.get('min_name_length', 3)
-    max_words = settings.get('max_name_words', 5)
-    excluded_words = [w.lower() for w in CONFIG.get('excluded_words', [])]
-    
-    # Detect bank and get specific keywords
-    bank_name, bank_info = detect_bank(text)
-    
-    # Build list of keywords to search for
-    keywords = CONFIG.get('name_keywords', [])
-    if bank_info:
-        # Add bank-specific keywords at the front (higher priority)
-        bank_keywords = bank_info.get('keywords', [])
-        keywords = bank_keywords + [k for k in keywords if k not in bank_keywords]
-        if settings.get('debug_mode', False):
-            print(f"Detected bank: {bank_name}")
-    
-    # Search for name using keywords
     lines = text.split('\n')
     
-    for keyword in keywords:
-        for i, line in enumerate(lines):
-            # Case-insensitive search for keyword
-            if keyword.lower() in line.lower():
-                # Try to extract name from same line
-                pattern = re.escape(keyword) + r'[\s:]*(.+?)(?:\n|$)'
-                match = re.search(pattern, line, re.IGNORECASE)
-                
-                if match:
-                    potential_name = match.group(1).strip()
-                    potential_name = clean_name(potential_name, excluded_words)
-                    
-                    if is_valid_name(potential_name, min_length, max_words):
-                        return potential_name
-                
-                # If not found on same line, check next line
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    next_line = clean_name(next_line, excluded_words)
-                    
-                    if is_valid_name(next_line, min_length, max_words):
-                        return next_line
+    # Pattern 1: CIMB format - "6467026903/ TIEU POH SIN"
+    for line in lines:
+        if 'To Account No.' in line or 'DuitNow ID' in line:
+            # Look for pattern: number / NAME
+            match = re.search(r':\s*[\d\s/]+/\s*([A-Z\s]+(?:[A-Z\s]+)*)', line)
+            if match:
+                name = match.group(1).strip()
+                if len(name) > 3 and not name.isdigit():
+                    return name
     
-    # Fallback: Look for capitalized names in first 15 lines
-    for line in lines[:15]:
-        words = line.strip().split()
-        if 2 <= len(words) <= max_words:
-            # Check if words are capitalized (likely a name)
-            if all(word[0].isupper() for word in words if word and word[0].isalpha()):
-                potential_name = ' '.join(words)
-                potential_name = clean_name(potential_name, excluded_words)
-                
-                if is_valid_name(potential_name, min_length, max_words):
-                    return potential_name
+    # Pattern 2: Maybank format - "Transfer To" followed by name on next line
+    for i, line in enumerate(lines):
+        if 'Transfer To' in line and i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+            # Check if next line looks like a name (all caps, letters and spaces)
+            if next_line and len(next_line) > 3:
+                # Should be mostly uppercase letters
+                if re.match(r'^[A-Z\s]+$', next_line):
+                    return next_line
     
-    return "Name not found"
+    # Pattern 3: Look for "/ NAME" pattern after account numbers
+    for line in lines:
+        match = re.search(r'/\s*([A-Z][A-Z\s]+[A-Z])\s*$', line)
+        if match:
+            name = match.group(1).strip()
+            words = name.split()
+            if 2 <= len(words) <= 6 and len(name) > 5:
+                return name
+    
+    return None
+
+def extract_amount(text):
+    """Extract payment amount from receipt text"""
+    patterns = [
+        r'Amount[\s:]*(?:MYR|RM)\s*([\d,]+\.?\d*)',
+        r'Total Debit Amount[\s:]*(?:MYR|RM)\s*([\d,]+\.?\d*)',
+        r'(?:MYR|RM)\s*([\d,]+\.?\d{2})',
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            amount = matches[0].replace(',', '')
+            try:
+                amount_float = float(amount)
+                if amount_float > 0:
+                    return f"RM{amount_float:.2f}"
+            except ValueError:
+                continue
+    
+    return None
 
 def sanitize_filename(name):
     """Remove invalid characters from filename"""
@@ -164,79 +88,76 @@ def sanitize_filename(name):
         name = name.replace(char, '')
     return name.strip()
 
-def process_receipts_bulk(input_folder, output_csv):
+def process_pdf_receipts(input_folder, output_csv):
     """
-    Process all receipt images in a folder and extract customer names.
+    Process all PDF receipts in a folder and rename them.
     
     Args:
-        input_folder: Path to folder containing receipt images
+        input_folder: Path to folder containing PDF receipts
         output_csv: Path to output CSV file
     """
-    image_extensions = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp']
-    
     results = []
     renamed_count = 0
     
     input_path = Path(input_folder)
-    image_files = [f for f in input_path.iterdir() 
-                   if f.suffix.lower() in image_extensions]
+    pdf_files = [f for f in input_path.iterdir() if f.suffix.lower() == '.pdf']
     
-    print(f"Found {len(image_files)} receipt images to process...")
+    print(f"Found {len(pdf_files)} PDF receipts to process...")
     print("-" * 60)
     
-    for idx, image_file in enumerate(image_files, 1):
-        print(f"\nProcessing {idx}/{len(image_files)}: {image_file.name}")
+    for idx, pdf_file in enumerate(pdf_files, 1):
+        print(f"\nProcessing {idx}/{len(pdf_files)}: {pdf_file.name}")
         
-        # Extract text from image
-        text = extract_text_from_image(str(image_file))
+        text = extract_text_from_pdf(str(pdf_file))
         
-        new_filename = image_file.name
+        new_filename = pdf_file.name
         
         if text:
             print(f"Text extracted: {len(text)} characters")
             
-            # Extract customer name
-            customer_name = extract_customer_name(text)
-            print(f"Customer name: {customer_name}")
+            recipient_name = extract_recipient_name(text)
+            amount = extract_amount(text)
             
-            # Rename file if customer name was found
-            if customer_name not in ["Name not found", "Error - No text extracted"]:
-                safe_name = sanitize_filename(customer_name)
-                new_filename = f"{safe_name}{image_file.suffix}"
-                new_path = image_file.parent / new_filename
+            print(f"Recipient name: {recipient_name if recipient_name else 'Not found'}")
+            print(f"Amount: {amount if amount else 'Not found'}")
+            
+            if recipient_name and amount:
+                safe_name = sanitize_filename(f"{recipient_name} - {amount}")
+                new_filename = f"{safe_name}.pdf"
+                new_path = pdf_file.parent / new_filename
                 
-                # Handle duplicate names
                 counter = 1
-                while new_path.exists() and new_path != image_file:
-                    new_filename = f"{safe_name}_{counter}{image_file.suffix}"
-                    new_path = image_file.parent / new_filename
+                while new_path.exists() and new_path != pdf_file:
+                    safe_name = sanitize_filename(f"{recipient_name} - {amount}_{counter}")
+                    new_filename = f"{safe_name}.pdf"
+                    new_path = pdf_file.parent / new_filename
                     counter += 1
                 
-                # Rename the file
                 try:
-                    image_file.rename(new_path)
+                    pdf_file.rename(new_path)
                     print(f"✓ Renamed to: {new_filename}")
                     renamed_count += 1
                 except Exception as e:
                     print(f"✗ Failed to rename: {e}")
-                    new_filename = image_file.name
+                    new_filename = pdf_file.name
             else:
-                print("✗ Skipped renaming (no customer name found)")
+                print("✗ Skipped renaming (missing recipient name or amount)")
         else:
-            customer_name = "Error - No text extracted"
-            print("Warning: No text was extracted from image")
+            recipient_name = None
+            amount = None
+            print("Warning: No text was extracted from PDF")
         
         results.append({
-            'original_filename': image_file.name,
+            'original_filename': pdf_file.name,
             'new_filename': new_filename,
-            'customer_name': customer_name,
-            'full_text': text.replace('\n', ' ')[:200]
+            'recipient_name': recipient_name if recipient_name else 'Not found',
+            'amount': amount if amount else 'Not found',
+            'full_text': text.replace('\n', ' ')[:300]
         })
     
-    # Save results to CSV
     print("\n" + "=" * 60)
     with open(output_csv, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['original_filename', 'new_filename', 'customer_name', 'full_text'])
+        writer = csv.DictWriter(f, fieldnames=['original_filename', 'new_filename', 'recipient_name', 'amount', 'full_text'])
         writer.writeheader()
         writer.writerows(results)
     
@@ -244,19 +165,18 @@ def process_receipts_bulk(input_folder, output_csv):
     print(f"Successfully processed {len(results)} receipts")
     print(f"Files renamed: {renamed_count}/{len(results)}")
     
-    found = sum(1 for r in results if r['customer_name'] not in ["Name not found", "Error - No text extracted"])
-    print(f"Customer names found: {found}/{len(results)}")
+    found = sum(1 for r in results if r['recipient_name'] != 'Not found' and r['amount'] != 'Not found')
+    print(f"Complete data found: {found}/{len(results)}")
     print("=" * 60)
     
     return results
 
-# Main execution
 if __name__ == "__main__":
     input_folder = "receipts"
-    output_csv = "customer_names.csv"
+    output_csv = "receipt_results.csv"
     
     if os.path.exists(input_folder):
-        results = process_receipts_bulk(input_folder, output_csv)
+        results = process_pdf_receipts(input_folder, output_csv)
         
         print("\n" + "=" * 60)
         print("RESULTS SUMMARY")
@@ -264,8 +184,9 @@ if __name__ == "__main__":
         for result in results:
             print(f"Original: {result['original_filename']}")
             print(f"     New: {result['new_filename']}")
-            print(f"Customer: {result['customer_name']}")
+            print(f"Recipient: {result['recipient_name']}")
+            print(f"   Amount: {result['amount']}")
             print()
     else:
         print(f"ERROR: Folder '{input_folder}' not found.")
-        print("Please create a 'receipts' folder and add your receipt images.")
+        print("Please create a 'receipts' folder and add your PDF receipts.")
