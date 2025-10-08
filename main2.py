@@ -75,11 +75,14 @@ def extract_amount(text):
             try:
                 amount_float = float(amount)
                 if amount_float > 0:
-                    return f"RM{amount_float:.2f}"
+                    # Format with thousand separator
+                    formatted = f"RM{amount_float:,.2f}"
+                    return formatted
             except ValueError:
                 continue
     
     return None
+
 
 def sanitize_filename(name):
     """Remove invalid characters from filename"""
