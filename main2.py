@@ -3,6 +3,16 @@ import os
 import re
 import csv
 from pathlib import Path
+import sys
+
+def get_executable_dir():
+    """Get the directory where the executable is located"""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        return Path(sys.executable).parent
+    else:
+        # Running as script
+        return Path(__file__).parent
 
 def extract_text_from_pdf(pdf_path):
     """Extract text from PDF file"""
@@ -83,7 +93,6 @@ def extract_amount(text):
     
     return None
 
-
 def sanitize_filename(name):
     """Remove invalid characters from filename"""
     invalid_chars = '<>:"/\\|?*'
@@ -103,9 +112,22 @@ def process_pdf_receipts(input_folder, output_csv):
     renamed_count = 0
     
     input_path = Path(input_folder)
+    
+    # Check if folder exists
+    if not input_path.exists():
+        print(f"ERROR: Folder '{input_folder}' not found.")
+        print(f"Looking for folder at: {input_path.absolute()}")
+        return results
+    
     pdf_files = [f for f in input_path.iterdir() if f.suffix.lower() == '.pdf']
     
+    if not pdf_files:
+        print(f"No PDF files found in '{input_folder}'")
+        print(f"Folder location: {input_path.absolute()}")
+        return results
+    
     print(f"Found {len(pdf_files)} PDF receipts to process...")
+    print(f"Input folder: {input_path.absolute()}")
     print("-" * 60)
     
     for idx, pdf_file in enumerate(pdf_files, 1):
@@ -159,12 +181,15 @@ def process_pdf_receipts(input_folder, output_csv):
         })
     
     print("\n" + "=" * 60)
-    with open(output_csv, 'w', newline='', encoding='utf-8') as f:
+    
+    # Save CSV to same directory as input folder
+    output_path = Path(output_csv)
+    with open(output_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=['original_filename', 'new_filename', 'recipient_name', 'amount', 'full_text'])
         writer.writeheader()
         writer.writerows(results)
     
-    print(f"Processing complete! Results saved to: {output_csv}")
+    print(f"Processing complete! Results saved to: {output_path.absolute()}")
     print(f"Successfully processed {len(results)} receipts")
     print(f"Files renamed: {renamed_count}/{len(results)}")
     
@@ -175,12 +200,22 @@ def process_pdf_receipts(input_folder, output_csv):
     return results
 
 if __name__ == "__main__":
-    input_folder = "receipts"
-    output_csv = "receipt_results.csv"
+    # Get the directory where the executable is located
+    exe_dir = get_executable_dir()
     
-    if os.path.exists(input_folder):
-        results = process_pdf_receipts(input_folder, output_csv)
-        
+    # Use receipts folder in the same directory as the executable
+    input_folder = exe_dir / "receipts"
+    output_csv = exe_dir / "receipt_results.csv"
+    
+    print(f"Executable location: {exe_dir}")
+    print(f"Looking for receipts in: {input_folder}")
+    
+    # Create receipts folder if it doesn't exist
+    input_folder.mkdir(exist_ok=True)
+    
+    results = process_pdf_receipts(input_folder, output_csv)
+    
+    if results:
         print("\n" + "=" * 60)
         print("RESULTS SUMMARY")
         print("=" * 60)
@@ -191,5 +226,8 @@ if __name__ == "__main__":
             print(f"   Amount: {result['amount']}")
             print()
     else:
-        print(f"ERROR: Folder '{input_folder}' not found.")
-        print("Please create a 'receipts' folder and add your PDF receipts.")
+        print("\nNo PDF files were processed.")
+        print(f"Please add PDF receipts to: {input_folder.absolute()}")
+    
+    # Keep console open
+    input("\nPress Enter to exit...")
