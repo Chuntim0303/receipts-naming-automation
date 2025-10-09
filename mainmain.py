@@ -39,33 +39,51 @@ def extract_recipient_name(text):
     """
     lines = text.split('\n')
     
-    # Pattern 1: CIMB format - "6467026903/ TIEU POH SIN"
-    for line in lines:
-        if 'To Account No.' in line or 'DuitNow ID' in line:
-            # Look for pattern: number / NAME
-            match = re.search(r':\s*[\d\s/]+/\s*([A-Z\s]+(?:[A-Z\s]+)*)', line)
+    # Pattern 1: Look specifically for "To Account No. / DuitNow ID" line
+    for i, line in enumerate(lines):
+        if 'To Account No. / DuitNow ID' in line:
+            # Extract name from the same line after the last slash
+            match = re.search(r'To Account No\. / DuitNow ID\s*:\s*[\d/]+\s*/\s*([A-Z][A-Z\s\.&,\-()]+(?:SDN\.?\s*BHD\.?)?)', line)
             if match:
                 name = match.group(1).strip()
-                if len(name) > 3 and not name.isdigit():
+                if len(name) > 3:
                     return name
-    
-    # Pattern 2: Maybank format - "Transfer To" followed by name on next line
-    for i, line in enumerate(lines):
-        if 'Transfer To' in line and i + 1 < len(lines):
-            next_line = lines[i + 1].strip()
-            # Check if next line looks like a name (all caps, letters and spaces)
-            if next_line and len(next_line) > 3:
-                # Should be mostly uppercase letters
-                if re.match(r'^[A-Z\s]+$', next_line):
+            
+            # If not found in same line, check next line
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if next_line and re.match(r'^[A-Z][A-Z\s\.&,\-()]+(?:SDN\.?\s*BHD\.?)?$', next_line):
                     return next_line
     
-    # Pattern 3: Look for "/ NAME" pattern after account numbers
+    # Pattern 2: Look for beneficiary information more specifically
+    for i, line in enumerate(lines):
+        if 'Beneficiary Information' in line:
+            # Look in subsequent lines for recipient info
+            for j in range(i + 1, min(i + 10, len(lines))):
+                if 'To Account No.' in lines[j] or 'DuitNow ID' in lines[j]:
+                    match = re.search(r'[\d/]+\s*/\s*([A-Z][A-Z\s\.&,\-()]+(?:SDN\.?\s*BHD\.?)?)', lines[j])
+                    if match:
+                        name = match.group(1).strip()
+                        if len(name) > 3:
+                            return name
+    
+    # Pattern 3: More specific pattern for recipient account
     for line in lines:
-        match = re.search(r'/\s*([A-Z][A-Z\s]+[A-Z])\s*$', line)
+        if 'To Account No.' in line and not 'Source Account' in line:
+            match = re.search(r'To Account No\.\s*/\s*DuitNow ID\s*:\s*[\d/]+\s*/\s*([A-Z][A-Z\s\.&,\-()]+(?:SDN\.?\s*BHD\.?)?)', line)
+            if match:
+                name = match.group(1).strip()
+                if len(name) > 3:
+                    return name
+    
+    # Pattern 4: Fallback - look for any account number followed by company name
+    for line in lines:
+        # Look for pattern: digits/ COMPANY NAME
+        match = re.search(r'\d+\s*/\s*([A-Z][A-Z\s\.&,\-()]+(?:SDN\.?\s*BHD\.?)?)\s*$', line)
         if match:
             name = match.group(1).strip()
-            words = name.split()
-            if 2 <= len(words) <= 6 and len(name) > 5:
+            # Additional check to avoid source account
+            if len(name) > 3 and 'MYR' not in name and 'Source' not in line:
                 return name
     
     return None
